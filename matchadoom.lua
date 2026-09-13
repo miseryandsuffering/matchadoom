@@ -13,76 +13,17 @@ local lshift = _bit.lshift
 local rshift = _bit.rshift
 local unpack = table.unpack or unpack
 
-local _crcT = {}
-do
-    for n = 0, 255 do
-        local c = n
-        for _ = 1, 8 do
-            if band(c, 1) ~= 0 then
-                c = bxor(0xEDB88320, rshift(c, 1))
-            else
-                c = rshift(c, 1)
-            end
-        end
-        _crcT[n] = c
-    end
+local function _u16le(n)
+    return string.char(band(n, 0xFF), band(rshift(n, 8), 0xFF))
 end
 
-local function _crc32(s)
-    local c = 0xFFFFFFFF
-    for i = 1, #s do
-        local b = string.byte(s, i)
-        c = bxor(_crcT[band(bxor(c, b), 0xFF)], rshift(c, 8))
-    end
-    return bxor(c, 0xFFFFFFFF)
+local function _u32le(n)
+    return string.char(band(n, 0xFF), band(rshift(n, 8), 0xFF), band(rshift(n, 16), 0xFF), band(rshift(n, 24), 0xFF))
 end
 
-local function _adler32(s)
-    local a, b = 1, 0
-    for i = 1, #s do
-        a = (a + string.byte(s, i)) % 65521
-        b = (b + a) % 65521
-    end
-    return bor(lshift(b, 16), a)
-end
-
-local function _u32be(n)
-    return string.char(band(rshift(n, 24), 0xFF), band(rshift(n, 16), 0xFF), band(rshift(n, 8), 0xFF), band(n, 0xFF))
-end
-
-local function _pngChunk(tag, data)
-    local td = tag .. data
-    return _u32be(#data) .. td .. _u32be(_crc32(td))
-end
-
-local function _makePNG(w, h, pixStr, pal)
-    local sig = "\137PNG\r\n\26\n"
-    local ihdr = _pngChunk("IHDR", _u32be(w) .. _u32be(h) .. "\8\2\0\0\0")
-    local rows = {}
-    local byte = string.byte
-    for y = 0, h - 1 do
-        local row = { "\0" }
-        local base = y * w
-        for x = 0, w - 1 do
-            local idx = byte(pixStr, base + x + 1) or 0
-            row[#row + 1] = pal[idx] or "\0\0\0"
-        end
-        rows[y + 1] = table.concat(row)
-    end
-    local raw = table.concat(rows)
-    local BS = 65535
-    local blks = {}
-    local len = #raw
-    for i = 1, len, BS do
-        local seg = raw:sub(i, i + BS - 1)
-        local ln = #seg
-        local fin = (i + BS - 1 >= len) and 1 or 0
-        local nl = band(bnot(ln), 0xFFFF)
-        blks[#blks + 1] = string.char(fin, band(ln, 0xFF), band(rshift(ln, 8), 0xFF), band(nl, 0xFF), band(rshift(nl, 8), 0xFF)) .. seg
-    end
-    local a = _adler32(raw)
-    local zlib = "\120\1" .. table.concat(blks) .. _u32be(a)
-    return sig .. ihdr .. _pngChunk("IDAT", zlib) .. _pngChunk("IEND", "")
+local function _i32le(n)
+    if n < 0 then n = n + 0x100000000 end
+    return _u32le(n)
 end
 
 local Framebuffer = {}
@@ -92,26 +33,62 @@ function Framebuffer.new(w, h, _)
     local img = Drawing.new("Image")
     img.Visible = true
     img.Transparency = 1
-    img.Position = Vector2.new(0, 0)
-    img.Size = Vector2.new(w, h)
-    local pal = {}
-    for i = 0, 255 do
-        pal[i] = "\0\0\0"
-    end
+    img.ZIndex = 100
+    img.Position = Vector2.new(40, 60)
+    img.Size = Vector2.new(w * 2, h * 2)
+
+    local bg = Drawing.new("Square")
+    bg.Visible = true
+    bg.Filled = true
+    bg.Color = Color3.fromRGB(15, 15, 15)
+    bg.Transparency = 0.9
+    bg.ZIndex = 99
+    bg.Position = Vector2.new(36, 36)
+    bg.Size = Vector2.new(w * 2 + 8, h * 2 + 32)
+
+    local title = Drawing.new("Text")
+    title.Visible = true
+    title.Text = "Matcha DOOM [WASD/Space/Ctrl]"
+    title.Size = 14
+    title.Color = Color3.fromRGB(240, 200, 60)
+    title.ZIndex = 101
+    title.Position = Vector2.new(42, 40)
+
     return setmetatable({
         _w = w,
         _h = h,
         _img = img,
-        _pal = pal,
+        _bg = bg,
+        _title = title,
+        _bmpHdr = "",
+        _tgaHdr = "",
         _pix = ""
     }, Framebuffer)
 end
 
 function Framebuffer:setpalette(raw)
     local n = math.min(256, math.floor(#raw / 3))
-    for i = 0, n - 1 do
-        self._pal[i] = raw:sub(i * 3 + 1, i * 3 + 3)
+    local pal_bgra = {}
+    local pal_bgr = {}
+    for i = 0, 255 do
+        local r = string.byte(raw, i * 3 + 1) or 0
+        local g = string.byte(raw, i * 3 + 2) or 0
+        local b = string.byte(raw, i * 3 + 3) or 0
+        pal_bgra[#pal_bgra + 1] = string.char(b, g, r, 0)
+        pal_bgr[#pal_bgr + 1] = string.char(b, g, r)
     end
+    local palBgraStr = table.concat(pal_bgra)
+    local palBgrStr = table.concat(pal_bgr)
+
+    -- BMP 8-bit uncompressed header (1078 bytes)
+    local bmpFile = "BM" .. _u32le(14 + 40 + 1024 + self._w * self._h) .. "\0\0\0\0" .. _u32le(14 + 40 + 1024)
+    local bmpInfo = _u32le(40) .. _i32le(self._w) .. _i32le(-self._h) .. _u16le(1) .. _u16le(8) .. _u32le(0) .. _u32le(self._w * self._h) .. _i32le(0) .. _i32le(0) .. _u32le(256) .. _u32le(256)
+    self._bmpHdr = bmpFile .. bmpInfo .. palBgraStr
+
+    -- TGA 8-bit uncompressed header (18 + 768 = 786 bytes)
+    local tgaHdr = string.char(0, 1, 1) .. _u16le(0) .. _u16le(256) .. string.char(24) .. _u16le(0) .. _u16le(0) .. _u16le(self._w) .. _u16le(self._h) .. string.char(8, 0x20)
+    self._tgaHdr = tgaHdr .. palBgrStr
+
     return n
 end
 
@@ -120,9 +97,28 @@ function Framebuffer:write(str)
 end
 
 function Framebuffer:draw(x, y, w, h)
-    self._img.Position = Vector2.new(x, y)
-    self._img.Size = Vector2.new(w, h)
-    self._img.Data = _makePNG(self._w, self._h, self._pix, self._pal)
+    local px = x or 40
+    local py = y or 60
+    local pw = w or (self._w * 2)
+    local ph = h or (self._h * 2)
+
+    self._img.Position = Vector2.new(px, py)
+    self._img.Size = Vector2.new(pw, ph)
+
+    if self._bg then
+        self._bg.Position = Vector2.new(px - 4, py - 24)
+        self._bg.Size = Vector2.new(pw + 8, ph + 28)
+    end
+    if self._title then
+        self._title.Position = Vector2.new(px + 4, py - 20)
+    end
+
+    -- Instantaneous 1-concatenation frame update
+    if self._bmpHdr ~= "" then
+        self._img.Data = self._bmpHdr .. self._pix
+    elseif self._tgaHdr ~= "" then
+        self._img.Data = self._tgaHdr .. self._pix
+    end
 end
 
 local function _fetchHttp(url)
@@ -1406,7 +1402,7 @@ local function main()
 
     local lastT, frames, fps, fpsTimer = tick(), 0, 0, 0
     local DSW, DSH = 640, 400
-    local DSX, DSY = 0, 0
+    local DSX, DSY = 40, 60
 
     local skyBgIdx, floorBgIdx = 0, 0
     if palraw then
