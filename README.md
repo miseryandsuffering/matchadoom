@@ -14,7 +14,7 @@ loadstring(game:HttpGet("https://raw.githubusercontent.com/miseryandsuffering/ma
 
 - **Framebuffer Drawing Adapter**: Uses an in-memory uncompressed PNG pipeline to stream rendered 320x200 8-bit paletted frames directly into Matcha's `Drawing.new("Image")`.
 - **Matcha Filesystem Support**: Automatically handles restricted workspace extensions (`.dat`, `.txt`) and caches downloaded WADs to `workspace/doom1.dat`.
-- **Auto-Download Fallback**: Automatically downloads `DOOM1.WAD` from this repository if no local WAD is found in your Matcha workspace.
+- **Auto-Download Fallback**: Automatically downloads `freedoom1.wad` from this repository if no local WAD is found in your Matcha workspace.
 
 ## Controls
 

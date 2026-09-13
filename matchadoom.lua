@@ -1,7 +1,7 @@
 -- Matcha Configuration
 -- Set WAD_SOURCE to a local file in your workspace (e.g. "doom1.dat") or a direct HTTP(S) URL.
 local WAD_SOURCE = "doom1.dat"
-local WAD_FALLBACK_URL = "https://raw.githubusercontent.com/miseryandsuffering/matchadoom/main/DOOM1.WAD"
+local WAD_FALLBACK_URL = "https://raw.githubusercontent.com/miseryandsuffering/matchadoom/main/freedoom1.wad"
 
 local iskeydown = iskeypressed or iskeydown
 
@@ -175,9 +175,10 @@ local function loadWAD()
         local names = {
             WAD_SOURCE,
             "doom1.dat", "DOOM1.dat", "doom.dat", "DOOM.dat",
-            "freedoom1.dat", "FREEDOOM1.dat", "doom2.dat", "DOOM2.dat",
+            "freedoom1.dat", "FREEDOOM1.dat", "freedoom2.dat", "FREEDOOM2.dat",
             "doom1.txt", "DOOM1.txt",
             "doom/doom1.dat", "doom/DOOM1.dat",
+            "freedoom1.wad", "FREEDOOM1.WAD", "freedoom2.wad", "FREEDOOM2.WAD",
             "DOOM1.WAD", "doom1.wad", "DOOM.WAD", "doom.wad"
         }
         for _, n in ipairs(names) do
