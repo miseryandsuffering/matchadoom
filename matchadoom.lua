@@ -30,21 +30,19 @@ local Framebuffer = {}
 Framebuffer.__index = Framebuffer
 
 function Framebuffer.new(w, h, _)
-    local img = Drawing.new("Image")
-    img.Visible = true
-    img.Transparency = 1
-    img.ZIndex = 1000
-    img.Position = Vector2.new(40, 60)
-    img.Size = Vector2.new(w * 2, h * 2)
+    local imgA = Drawing.new("Image")
+    imgA.Visible = true
+    imgA.Transparency = 1
+    imgA.ZIndex = 1000
+    imgA.Position = Vector2.new(40, 60)
+    imgA.Size = Vector2.new(w * 2, h * 2)
 
-    local bg = Drawing.new("Square")
-    bg.Visible = true
-    bg.Filled = true
-    bg.Color = Color3.fromRGB(15, 15, 15)
-    bg.Transparency = 1
-    bg.ZIndex = 999
-    bg.Position = Vector2.new(36, 36)
-    bg.Size = Vector2.new(w * 2 + 8, h * 2 + 32)
+    local imgB = Drawing.new("Image")
+    imgB.Visible = true
+    imgB.Transparency = 1
+    imgB.ZIndex = 999
+    imgB.Position = Vector2.new(40, 60)
+    imgB.Size = Vector2.new(w * 2, h * 2)
 
     local title = Drawing.new("Text")
     title.Visible = true
@@ -57,11 +55,10 @@ function Framebuffer.new(w, h, _)
     return setmetatable({
         _w = w,
         _h = h,
-        _img = img,
-        _bg = bg,
+        _bufs = { imgA, imgB },
+        _cur = 1,
         _title = title,
         _bmpHdr = "",
-        _tgaHdr = "",
         _pix = "",
         _lastX = 40,
         _lastY = 60,
@@ -73,26 +70,17 @@ end
 function Framebuffer:setpalette(raw)
     local n = math.min(256, math.floor(#raw / 3))
     local pal_bgra = {}
-    local pal_bgr = {}
     for i = 0, 255 do
         local r = string.byte(raw, i * 3 + 1) or 0
         local g = string.byte(raw, i * 3 + 2) or 0
         local b = string.byte(raw, i * 3 + 3) or 0
         pal_bgra[#pal_bgra + 1] = string.char(b, g, r, 0)
-        pal_bgr[#pal_bgr + 1] = string.char(b, g, r)
     end
     local palBgraStr = table.concat(pal_bgra)
-    local palBgrStr = table.concat(pal_bgr)
 
-    -- BMP 8-bit uncompressed header (1078 bytes)
     local bmpFile = "BM" .. _u32le(14 + 40 + 1024 + self._w * self._h) .. "\0\0\0\0" .. _u32le(14 + 40 + 1024)
     local bmpInfo = _u32le(40) .. _i32le(self._w) .. _i32le(-self._h) .. _u16le(1) .. _u16le(8) .. _u32le(0) .. _u32le(self._w * self._h) .. _i32le(0) .. _i32le(0) .. _u32le(256) .. _u32le(256)
     self._bmpHdr = bmpFile .. bmpInfo .. palBgraStr
-
-    -- TGA 8-bit uncompressed header (18 + 768 = 786 bytes)
-    local tgaHdr = string.char(0, 1, 1) .. _u16le(0) .. _u16le(256) .. string.char(24) .. _u16le(0) .. _u16le(0) .. _u16le(self._w) .. _u16le(self._h) .. string.char(8, 0x20)
-    self._tgaHdr = tgaHdr .. palBgrStr
-
     return n
 end
 
@@ -108,22 +96,24 @@ function Framebuffer:draw(x, y, w, h)
 
     if px ~= self._lastX or py ~= self._lastY or pw ~= self._lastW or ph ~= self._lastH then
         self._lastX, self._lastY, self._lastW, self._lastH = px, py, pw, ph
-        self._img.Position = Vector2.new(px, py)
-        self._img.Size = Vector2.new(pw, ph)
-        if self._bg then
-            self._bg.Position = Vector2.new(px - 4, py - 24)
-            self._bg.Size = Vector2.new(pw + 8, ph + 28)
-        end
+        self._bufs[1].Position = Vector2.new(px, py)
+        self._bufs[1].Size = Vector2.new(pw, ph)
+        self._bufs[2].Position = Vector2.new(px, py)
+        self._bufs[2].Size = Vector2.new(pw, ph)
         if self._title then
             self._title.Position = Vector2.new(px + 4, py - 20)
         end
     end
 
-    -- Instantaneous 1-concatenation frame update
     if self._bmpHdr ~= "" then
-        self._img.Data = self._bmpHdr .. self._pix
-    elseif self._tgaHdr ~= "" then
-        self._img.Data = self._tgaHdr .. self._pix
+        local nextBuf = (self._cur % 2) + 1
+        local front = self._bufs[nextBuf]
+        local back = self._bufs[self._cur]
+
+        front.Data = self._bmpHdr .. self._pix
+        front.ZIndex = 1000
+        back.ZIndex = 999
+        self._cur = nextBuf
     end
 end
 
