@@ -33,7 +33,7 @@ function Framebuffer.new(w, h, _)
     local img = Drawing.new("Image")
     img.Visible = true
     img.Transparency = 1
-    img.ZIndex = 100
+    img.ZIndex = 1000
     img.Position = Vector2.new(40, 60)
     img.Size = Vector2.new(w * 2, h * 2)
 
@@ -41,17 +41,17 @@ function Framebuffer.new(w, h, _)
     bg.Visible = true
     bg.Filled = true
     bg.Color = Color3.fromRGB(15, 15, 15)
-    bg.Transparency = 0.9
-    bg.ZIndex = 99
+    bg.Transparency = 1
+    bg.ZIndex = 999
     bg.Position = Vector2.new(36, 36)
     bg.Size = Vector2.new(w * 2 + 8, h * 2 + 32)
 
     local title = Drawing.new("Text")
     title.Visible = true
-    title.Text = "Matcha DOOM [WASD/Space/Ctrl]"
+    title.Text = "Matcha DOOM [WASD=Move, Ctrl=Shoot, Space=Open]"
     title.Size = 14
     title.Color = Color3.fromRGB(240, 200, 60)
-    title.ZIndex = 101
+    title.ZIndex = 1001
     title.Position = Vector2.new(42, 40)
 
     return setmetatable({
@@ -62,7 +62,11 @@ function Framebuffer.new(w, h, _)
         _title = title,
         _bmpHdr = "",
         _tgaHdr = "",
-        _pix = ""
+        _pix = "",
+        _lastX = 40,
+        _lastY = 60,
+        _lastW = w * 2,
+        _lastH = h * 2,
     }, Framebuffer)
 end
 
@@ -102,15 +106,17 @@ function Framebuffer:draw(x, y, w, h)
     local pw = w or (self._w * 2)
     local ph = h or (self._h * 2)
 
-    self._img.Position = Vector2.new(px, py)
-    self._img.Size = Vector2.new(pw, ph)
-
-    if self._bg then
-        self._bg.Position = Vector2.new(px - 4, py - 24)
-        self._bg.Size = Vector2.new(pw + 8, ph + 28)
-    end
-    if self._title then
-        self._title.Position = Vector2.new(px + 4, py - 20)
+    if px ~= self._lastX or py ~= self._lastY or pw ~= self._lastW or ph ~= self._lastH then
+        self._lastX, self._lastY, self._lastW, self._lastH = px, py, pw, ph
+        self._img.Position = Vector2.new(px, py)
+        self._img.Size = Vector2.new(pw, ph)
+        if self._bg then
+            self._bg.Position = Vector2.new(px - 4, py - 24)
+            self._bg.Size = Vector2.new(pw + 8, ph + 28)
+        end
+        if self._title then
+            self._title.Position = Vector2.new(px + 4, py - 20)
+        end
     end
 
     -- Instantaneous 1-concatenation frame update
@@ -1431,10 +1437,19 @@ local function main()
         end
     end
 
+    local renderInterval = 1 / 35 -- Classic Doom 35 FPS tickrate
+    local renderAcc = 0
+
     onRender(function()
         local now = tick()
-        local dt  = math.min(now - lastT, 0.05)
+        local dt  = math.min(now - lastT, 0.1)
         lastT = now
+
+        renderAcc = renderAcc + dt
+        if renderAcc < renderInterval then return end
+        dt = renderAcc
+        renderAcc = 0
+
         flashT = math.max(0, flashT - dt)
 
         frames = frames + 1
