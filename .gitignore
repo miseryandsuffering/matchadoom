@@ -1,0 +1,4 @@
+*.src.lua
+matchadoom.src.lua
+*.bak
+*.tmp
