@@ -4,16 +4,24 @@ local WAD_SOURCE = "doom1.dat"
 local WAD_FALLBACK_URL = "https://raw.githubusercontent.com/miseryandsuffering/matchadoom/main/freedoom1.wad"
 
 local iskeydown = iskeypressed or iskeydown
+local _bit = bit32 or bit
+local band   = _bit.band
+local bor    = _bit.bor
+local bxor   = _bit.bxor
+local bnot   = _bit.bnot
+local lshift = _bit.lshift
+local rshift = _bit.rshift
+local unpack = table.unpack or unpack
 
 local _crcT = {}
 do
     for n = 0, 255 do
         local c = n
         for _ = 1, 8 do
-            if (c & 1) ~= 0 then
-                c = 0xEDB88320 ~ (c >> 1)
+            if band(c, 1) ~= 0 then
+                c = bxor(0xEDB88320, rshift(c, 1))
             else
-                c = c >> 1
+                c = rshift(c, 1)
             end
         end
         _crcT[n] = c
@@ -24,9 +32,9 @@ local function _crc32(s)
     local c = 0xFFFFFFFF
     for i = 1, #s do
         local b = string.byte(s, i)
-        c = _crcT[(c ~ b) & 0xFF] ~ (c >> 8)
+        c = bxor(_crcT[band(bxor(c, b), 0xFF)], rshift(c, 8))
     end
-    return c ~ 0xFFFFFFFF
+    return bxor(c, 0xFFFFFFFF)
 end
 
 local function _adler32(s)
@@ -35,11 +43,11 @@ local function _adler32(s)
         a = (a + string.byte(s, i)) % 65521
         b = (b + a) % 65521
     end
-    return (b << 16) | a
+    return bor(lshift(b, 16), a)
 end
 
 local function _u32be(n)
-    return string.char((n >> 24) & 0xFF, (n >> 16) & 0xFF, (n >> 8) & 0xFF, n & 0xFF)
+    return string.char(band(rshift(n, 24), 0xFF), band(rshift(n, 16), 0xFF), band(rshift(n, 8), 0xFF), band(n, 0xFF))
 end
 
 local function _pngChunk(tag, data)
@@ -69,8 +77,8 @@ local function _makePNG(w, h, pixStr, pal)
         local seg = raw:sub(i, i + BS - 1)
         local ln = #seg
         local fin = (i + BS - 1 >= len) and 1 or 0
-        local nl = (~ln) & 0xFFFF
-        blks[#blks + 1] = string.char(fin, ln & 0xFF, (ln >> 8) & 0xFF, nl & 0xFF, (nl >> 8) & 0xFF) .. seg
+        local nl = band(bnot(ln), 0xFFFF)
+        blks[#blks + 1] = string.char(fin, band(ln, 0xFF), band(rshift(ln, 8), 0xFF), band(nl, 0xFF), band(rshift(nl, 8), 0xFF)) .. seg
     end
     local a = _adler32(raw)
     local zlib = "\120\1" .. table.concat(blks) .. _u32be(a)
@@ -358,7 +366,7 @@ local function loadMap(wad, mapname)
         local li = lines[i]
         if not li then break end
         local oneSided = (li.s2 == 0xFFFF)
-        local blocking = oneSided or ((li.flags & 1) ~= 0)
+        local blocking = oneSided or (band(li.flags, 1) ~= 0)
         local sA, sB
         if not oneSided and li.s1 ~= 0xFFFF then
             local sdA, sdB = sides[li.s1], sides[li.s2]
@@ -547,7 +555,7 @@ local function makeTextures(wad)
 
     local function applyLight(pidx, light)
         if not colormapData then return pidx end
-        local cmidx = math.max(0, math.min(31, (256-light) >> 3))
+        local cmidx = math.max(0, math.min(31, rshift(256 - light, 3)))
         return byte(colormapData, cmidx*256 + pidx + 1) or pidx
     end
 
@@ -967,11 +975,11 @@ local function makeRenderer(map, tex)
     local function renderWeapon(patch, flashPatch, bobx, boby)
         bobx, boby = bobx or 0, boby or 0
         if patch then
-            local sx_l = SW//2 - patch.lo + bobx
+            local sx_l = math.floor(SW / 2) - patch.lo + bobx
             local sy_t = 168   - patch.to + boby
             if sy_t + patch.h < 0 or sy_t >= SH then
                 sy_t = SH - patch.h + boby
-                sx_l = SW//2 - patch.w//2 + bobx
+                sx_l = math.floor(SW / 2) - math.floor(patch.w / 2) + bobx
             end
             blitPatch(patch, sx_l, sy_t, 200)
             if flashPatch then
@@ -985,7 +993,7 @@ local function makeRenderer(map, tex)
         local function px2(x, y, c)
             if x>=0 and x<SW and y>=0 and y<SH then screen[y*SW+x] = c end
         end
-        local bx, by = SW//2 + bobx, SH - 6 + boby
+        local bx, by = math.floor(SW / 2) + bobx, SH - 6 + boby
         for i = -20, 8 do px2(bx+i, by-14, 119) end
         for i = -20, 8 do px2(bx+i, by-13, 107) end
         for dy2 = -12, -7 do for i = -12, 8 do px2(bx+i, by+dy2, 95) end end
@@ -999,7 +1007,7 @@ local function makeRenderer(map, tex)
     end
 
     local function fillRemainder(skyIdx, floorIdx)
-        local halfY = SH >> 1
+        local halfY = rshift(SH, 1)
         for x = 0, SW-1 do
             local t = topClip[x] + 1
             local b = botClip[x] - 1
@@ -1021,7 +1029,7 @@ local function makeRenderer(map, tex)
             local top = math.min(base+511, SZ-1)
             for i = base, top do chunk[i-base+1] = screen[i] end
             pi = pi + 1
-            parts[pi] = string.char(table.unpack(chunk))
+            parts[pi] = string.char(unpack(chunk))
         end
         return table.concat(parts)
     end
@@ -1221,13 +1229,13 @@ local function main()
     texSys.applyLight = function(pidx, light)
         local cmraw = wad.getData("COLORMAP")
         if not cmraw then return pidx end
-        local cidx = math.max(0, math.min(31, (256 - light) >> 3))
+        local cidx = math.max(0, math.min(31, rshift(256 - light, 3)))
         return byte(cmraw, cidx*256 + pidx + 1) or pidx
     end
     local cmraw = wad.getData("COLORMAP")
     if cmraw then
         texSys.applyLight = function(pidx, light)
-            local cidx = math.max(0, math.min(31, (256 - light) >> 3))
+            local cidx = math.max(0, math.min(31, rshift(256 - light, 3)))
             return byte(cmraw, cidx*256 + pidx + 1) or pidx
         end
     end
@@ -1637,7 +1645,7 @@ local function main()
 
         renderer.resetClip()
         local s = renderer.screen
-        local half = SW * (SH >> 1)
+        local half = SW * rshift(SH, 1)
         for i = 0,    half-1  do s[i] = skyBgIdx  end
         for i = half, SW*SH-1 do s[i] = floorBgIdx end
 
